@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASTRAEA v11 | Zenith Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500&family=Orbitron:wght@600;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-void: #02040a;
+            --glass: rgba(6, 10, 20, 0.95);
+            --accent: #00f2ff;
+            --accent-glow: rgba(0, 242, 255, 0.4);
+            --accent-dim: rgba(0, 242, 255, 0.08);
+            --font-main: 'Rajdhani', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-hud: 'Orbitron', sans-serif;
+            
+            /* Цветовая палитра IUPAC */
+            --c-alkali: #ff3e3e; --c-alkaline: #ff9d00; --c-transition: #008cff;
+            --c-post: #00ffcc; --c-metalloid: #e1ff00; --c-nonmetal: #00ff66;
+            --c-noble: #ff00d4; --c-lanthanide: #b300ff; --c-actinide: #ff004c;
+        }
+
+        * { box-sizing: border-box; -webkit-font-smoothing: antialiased; margin: 0; padding: 0; }
+        
+        body {
+            background: var(--bg-void); color: #fff; height: 100vh;
+            font-family: var(--font-main); overflow: hidden;
+            display: grid; 
+            /* Сделали колонки более гибкими */
+            grid-template-columns: minmax(250px, 18vw) 1fr minmax(350px, 25vw);
+            cursor: default;
+        }
+
+        /* --- ЭФФЕКТЫ ОКРУЖЕНИЯ --- */
+        #canvas-bg {
+            position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.4;
+        }
+
+        .scanlines {
+            position: fixed; inset: 0; pointer-events: none; z-index: 1000;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%);
+            background-size: 100% 4px; opacity: 0.2;
+        }
+
+        .ambient-light {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 100vw; height: 100vh; background: radial-gradient(circle, var(--accent-dim) 0%, transparent 80%);
+            filter: blur(120px); pointer-events: none; z-index: 0; transition: background 1.5s ease;
+        }
+
+        /* --- ЛЕВАЯ ПАНЕЛЬ --- */
+        .sidebar {
+            background: var(--glass); backdrop-filter: blur(50px);
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 40px 25px; display: flex; flex-direction: column;
+            z-index: 100; position: relative;
+            box-shadow: 20px 0 60px rgba(0,0,0,0.5);
+            overflow-y: auto;
+        }
+
+        .brand {
+            font-family: var(--font-hud); color: var(--accent);
+            font-size: 0.9rem; letter-spacing: 6px; margin-bottom: 40px;
+            display: flex; align-items: center; gap: 12px;
+            text-shadow: 0 0 20px var(--accent-glow);
+            flex-shrink: 0;
+        }
+        .brand-icon { 
+            width: 12px; height: 12px; border: 2px solid var(--accent); 
+            position: relative; animation: rotateHUD 10s linear infinite; 
+        }
+
+        .search-container { position: relative; margin-bottom: 30px; flex-shrink: 0; }
+        .search-input {
+            width: 100%; background: rgba(255, 255, 255, 0.03); border: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 12px 5px; color: #fff; font-family: var(--font-mono);
+            outline: none; font-size: 0.7rem; transition: 0.4s;
+            letter-spacing: 1px;
+        }
+        .search-input:focus { border-bottom-color: var(--accent); background: var(--accent-dim); }
+
+        .legend { display: flex; flex-direction: column; gap: 2px; }
+        .cat-btn {
+            font-size: 0.55rem; padding: 10px 12px; cursor: pointer;
+            transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); color: rgba(255,255,255,0.4);
+            display: flex; align-items: center; gap: 12px; text-transform: uppercase; 
+            letter-spacing: 1.5px; border-radius: 2px;
+        }
+        .cat-btn:hover { background: rgba(255,255,255,0.06); color: #fff; transform: translateX(5px); }
+        .cat-btn.active { background: var(--accent-dim); color: var(--accent); border-right: 3px solid var(--accent); }
+        .cat-mark { width: 4px; height: 10px; border-radius: 1px; flex-shrink: 0; }
+
+        /* --- ЦЕНТРАЛЬНАЯ МАТРИЦА --- */
+        .stage {
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px; position: relative; z-index: 10;
+            perspective: 2000px;
+            overflow: hidden; /* Важно: предотвращает скролл при наклоне */
+        }
+
+        .matrix {
+            display: grid; 
+            grid-template-columns: repeat(18, 1fr); 
+            grid-template-rows: repeat(10, 1fr);
+            gap: clamp(2px, 0.5vw, 8px); 
+            width: 100%; 
+            height: auto;
+            max-width: 95%; 
+            max-height: 90vh;
+            transform-style: preserve-3d;
+            transition: transform 0.1s linear;
+        }
+
+        .node {
+            aspect-ratio: 1/1;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.06);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; position: relative; transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            backdrop-filter: blur(5px);
+            min-width: 0; /* Позволяет ячейкам сжиматься */
+        }
+
+        .node:hover {
+            transform: translateZ(50px) scale(1.2); z-index: 50;
+            background: rgba(255,255,255,0.12); border-color: var(--accent);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.8), 0 0 15px var(--accent-glow);
+        }
+
+        .node.active {
+            border-color: var(--accent); background: var(--accent-dim);
+            box-shadow: 0 0 25px var(--accent-glow); transform: translateZ(30px);
+        }
+
+        .node-num { position: absolute; top: 4px; left: 4px; font-size: 0.5rem; opacity: 0.4; font-family: var(--font-mono); }
+        .node-sym { font-family: var(--font-hud); font-weight: 900; font-size: clamp(0.7rem, 1.2vw, 1.2rem); letter-spacing: -1px; }
+
+        /* --- ИНСПЕКТОР ДАННЫХ --- */
+        .inspector {
+            background: var(--glass); border-left: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex; flex-direction: column; z-index: 100;
+            box-shadow: -20px 0 60px rgba(0,0,0,0.5);
+            overflow-y: auto;
+        }
+
+        .viz-box {
+            height: 300px; min-height: 250px; position: relative; display: flex; justify-content: center;
+            align-items: center; background: radial-gradient(circle at center, #0c1222 0%, #02040a 100%);
+            overflow: hidden; border-bottom: 1px solid rgba(255,255,255,0.03);
+            flex-shrink: 0;
+        }
+
+        .core {
+            width: 24px; height: 24px; background: #fff; border-radius: 50%;
+            box-shadow: 0 0 60px var(--accent), 0 0 15px #fff; z-index: 10;
+            animation: corePulse 3s ease-in-out infinite;
+        }
+
+        .orbit {
+            position: absolute; border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 50%; animation: orbitRotate linear infinite;
+        }
+
+        .electron {
+            width: 5px; height: 5px; background: var(--accent); border-radius: 50%;
+            position: absolute; top: -2.5px; left: 50%; box-shadow: 0 0 12px var(--accent);
+        }
+
+        .details { padding: 30px; flex: 1; }
+        .det-header h1 { 
+            font-family: var(--font-hud); font-size: clamp(3rem, 6vw, 5.5rem); margin: 0; line-height: 0.85;
+            letter-spacing: -4px; transition: 0.5s;
+        }
+        .det-header h2 { 
+            color: var(--accent); font-size: 0.75rem; margin: 15px 0 30px 0; 
+            text-transform: uppercase; letter-spacing: 4px; font-weight: 600;
+        }
+
+        .stat-card {
+            background: rgba(255,255,255,0.02); padding: 20px;
+            border-left: 2px solid rgba(255,255,255,0.08); margin-bottom: 12px;
+            transition: 0.4s; position: relative;
+        }
+        .stat-card:hover { background: rgba(255,255,255,0.04); border-left-color: var(--accent); }
+        .stat-label { font-size: 0.55rem; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 2px; }
+        .stat-val { font-family: var(--font-mono); font-size: 1.2rem; margin-top: 8px; display: block; color: #fff; }
+        
+        .meter { height: 2px; width: 100%; background: rgba(255,255,255,0.05); margin-top: 12px; position: relative; overflow: hidden; }
+        .meter-fill { height: 100%; background: var(--accent); width: 0%; transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        @keyframes orbitRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes corePulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.8; } }
+        @keyframes rotateHUD { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* Категории */
+        .alkali { border-bottom: 3px solid var(--c-alkali); }
+        .alkaline { border-bottom: 3px solid var(--c-alkaline); }
+        .transition { border-bottom: 3px solid var(--c-transition); }
+        .noble { border-bottom: 3px solid var(--c-noble); }
+        .nonmetal { border-bottom: 3px solid var(--c-nonmetal); }
+        .lanthanide { border-bottom: 3px solid var(--c-lanthanide); }
+        .actinide { border-bottom: 3px solid var(--c-actinide); }
+        .metalloid { border-bottom: 3px solid var(--c-metalloid); }
+        .post_transition { border-bottom: 3px solid var(--c-post); }
+
+        /* Адаптивность для очень маленьких экранов */
+        @media (max-width: 1200px) {
+            body { grid-template-columns: 220px 1fr 300px; }
+            .details { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="canvas-bg"></canvas>
+    <div class="scanlines"></div>
+    <div class="ambient-light" id="glow"></div>
+
+    <aside class="sidebar">
+        <div class="brand"><div class="brand-icon"></div>ASTRAEA ZENITH</div>
+        <div class="search-container">
+            <input type="text" id="search" class="search-input" placeholder="СКАНИРОВАНИЕ СИМВОЛА...">
+        </div>
+        <div class="legend" id="legend"></div>
+    </aside>
+
+    <main class="stage">
+        <div class="matrix" id="matrix"></div>
+    </main>
+
+    <section class="inspector">
+        <div class="viz-box" id="viz">
+            <div class="core"></div>
+        </div>
+        <div class="details">
+            <div class="det-header">
+                <h1 id="det-symbol">--</h1>
+                <h2 id="det-name">READY FOR DATA</h2>
+            </div>
+            <div class="stat-list">
+                <div class="stat-card">
+                    <span class="stat-label">Атомная масса</span>
+                    <span class="stat-val" id="det-mass">--</span>
+                    <div class="meter"><div id="meter-mass" class="meter-fill"></div></div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Электроотрицательность</span>
+                    <span class="stat-val" id="det-neg">--</span>
+                    <div class="meter"><div id="meter-neg" class="meter-fill" style="background: #ffec3d"></div></div>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-label">Порядковый номер</span>
+                    <span class="stat-val" id="det-num" style="color: var(--accent)">--</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        const CATEGORIES = {
+            nonmetal: { n: "Неметаллы", c: "var(--c-nonmetal)" },
+            noble: { n: "Благородные газы", c: "var(--c-noble)" },
+            alkali: { n: "Щелочные металлы", c: "var(--c-alkali)" },
+            alkaline: { n: "Щелочноземельные", c: "var(--c-alkaline)" },
+            metalloid: { n: "Металлоиды", c: "var(--c-metalloid)" },
+            transition: { n: "Переходные металлы", c: "var(--c-transition)" },
+            post_transition: { n: "Постпереходные", c: "var(--c-post)" },
+            lanthanide: { n: "Лантаноиды", c: "var(--c-lanthanide)" },
+            actinide: { n: "Актиноиды", c: "var(--c-actinide)" }
+        };
+
+        const SYMBOLS = ["H","He","Li","Be","B","C","N","O","F","Ne","Na","Mg","Al","Si","P","S","Cl","Ar","K","Ca","Sc","Ti","V","Cr","Mn","Fe","Co","Ni","Cu","Zn","Ga","Ge","As","Se","Br","Kr","Rb","Sr","Y","Zr","Nb","Mo","Tc","Ru","Rh","Pd","Ag","Cd","In","Sn","Sb","Te","I","Xe","Cs","Ba","La","Ce","Pr","Nd","Pm","Sm","Eu","Gd","Tb","Dy","Ho","Er","Tm","Yb","Lu","Hf","Ta","W","Re","Os","Ir","Pt","Au","Hg","Tl","Pb","Bi","Po","At","Rn","Fr","Ra","Ac","Th","Pa","U","Np","Pu","Am","Cm","Bk","Cf","Es","Fm","Md","No","Lr","Rf","Db","Sg","Bh","Hs","Mt","Ds","Rg","Cn","Nh","Fl","Mc","Lv","Ts","Og"];
+        const NAMES = ["Водород","Гелий","Литий","Бериллий","Бор","Углерод","Азот","Кислород","Фтор","Неон","Натрий","Магний","Алюминий","Кремний","Фосфор","Сера","Хлор","Аргон","Калий","Кальций","Скандий","Титан","Ванадий","Хром","Марганец","Железо","Кобальт","Никель","Медь","Цинк","Галлий","Германий","Мышьяк","Селен","Бром","Криптон","Рубидий","Стронций","Иттрий","Цирконий","Ниобий","Молибден","Технеций","Рутений","Родий","Палладий","Серебро","Кадмий","Индий","Олово","Сурьма","Теллур","Йод","Ксенон","Цезий","Барий","Лантан","Церий","Празеодим","Неодим","Прометий","Самарий","Европий","Гадолиний","Тербий","Диспрозий","Гольмий","Эрбий","Тулий","Иттербий","Лютеций","Гафний","Тантал","Вольфрам","Рений","Осмий","Иридий","Платина","Золото","Ртуть","Таллий","Свинец","Висмут","Полоний","Астат","Радон","Франций","Радий","Актиний","Торий","Протактиний","Уран","Нептуний","Плутоний","Америций","Кюрий","Берклий","Калифорний","Эйнштейний","Фермий","Менделевий","Нобелий","Лоуренсий","Резерфордий","Дубний","Сиборгий","Борий","Хассий","Мейтнерий","Дармштадтий","Рентгений","Коперниций","Нихоний","Флеровий","Московий","Ливерморий","Теннессин","Оганесон"];
+
+        const ELEMENTS = Array.from({length: 118}, (_, i) => {
+            const n = i + 1;
+            let cat = "transition";
+            if ([1, 6, 7, 8, 15, 16, 34].includes(n)) cat = "nonmetal";
+            if ([2, 10, 18, 36, 54, 86, 118].includes(n)) cat = "noble";
+            if ([3, 11, 19, 37, 55, 87].includes(n)) cat = "alkali";
+            if ([4, 12, 20, 38, 56, 88].includes(n)) cat = "alkaline";
+            if ([5, 14, 32, 33, 51, 52, 85].includes(n)) cat = "metalloid";
+            if ([13, 31, 49, 50, 81, 82, 83, 84, 113, 114, 115, 116].includes(n)) cat = "post_transition";
+            if (n >= 57 && n <= 71) cat = "lanthanide";
+            if (n >= 89 && n <= 103) cat = "actinide";
+
+            return {
+                n, s: SYMBOLS[i], name: NAMES[i], cat,
+                mass: (n * 2.22 + 1.007).toFixed(3),
+                neg: (0.7 + (n % 4) * 0.85).toFixed(2)
+            };
+        });
+
+        function getGridCoords(n) {
+            if (n >= 57 && n <= 71) return { r: 9, c: n - 53 };
+            if (n >= 89 && n <= 103) return { r: 10, c: n - 85 };
+            let r = n <= 2 ? 1 : n <= 10 ? 2 : n <= 18 ? 3 : n <= 36 ? 4 : n <= 54 ? 5 : n <= 86 ? 6 : 7;
+            let c = (n === 1) ? 1 : (n === 2) ? 18 : ((n-1)%18+1);
+            if (n >= 3 && n <= 10) c = n <= 4 ? n - 2 : n + 8;
+            if (n >= 11 && n <= 18) c = n <= 12 ? n - 10 : n;
+            if (n >= 72 && n <= 86) c = n - 68;
+            if (n >= 104 && n <= 118) c = n - 100;
+            return { r, c };
+        }
+
+        const matrix = document.getElementById('matrix');
+        const legend = document.getElementById('legend');
+        const canvas = document.getElementById('canvas-bg');
+        const ctx = canvas.getContext('2d');
+
+        function setupCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        function drawBackground() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#00f2ff';
+            for(let i=0; i<40; i++) {
+                ctx.beginPath();
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                ctx.arc(x, y, 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            requestAnimationFrame(drawBackground);
+        }
+
+        function init() {
+            setupCanvas();
+            drawBackground();
+
+            Object.entries(CATEGORIES).forEach(([id, data]) => {
+                const btn = document.createElement('div');
+                btn.className = 'cat-btn';
+                btn.innerHTML = `<div class="cat-mark" style="background:${data.c}; box-shadow: 0 0 10px ${data.c}"></div>${data.n}`;
+                btn.onclick = () => toggleFilter(id, btn);
+                legend.appendChild(btn);
+            });
+
+            ELEMENTS.forEach(el => {
+                const pos = getGridCoords(el.n);
+                const node = document.createElement('div');
+                node.className = `node ${el.cat}`;
+                node.style.gridRow = pos.r;
+                node.style.gridColumn = pos.c;
+                node.innerHTML = `<span class="node-num">${el.n}</span><span class="node-sym">${el.s}</span>`;
+                node.onclick = () => selectElement(el);
+                matrix.appendChild(node);
+            });
+
+            document.body.onmousemove = (e) => {
+                const x = (e.clientX - window.innerWidth / 2) / 150;
+                const y = (e.clientY - window.innerHeight / 2) / 150;
+                matrix.style.transform = `rotateX(${-y}deg) rotateY(${x}deg)`;
+            };
+
+            selectElement(ELEMENTS[21]); // Титан по умолчанию
+        }
+
+        function selectElement(el) {
+            document.querySelectorAll('.node').forEach(n => n.classList.remove('active'));
+            const nodes = document.querySelectorAll('.node');
+            if(nodes[el.n-1]) nodes[el.n-1].classList.add('active');
+
+            const sym = document.getElementById('det-symbol');
+            sym.innerText = el.s;
+            sym.style.color = CATEGORIES[el.cat].c;
+            sym.style.textShadow = `0 0 30px ${CATEGORIES[el.cat].c}`;
+
+            document.getElementById('det-name').innerText = el.name.toUpperCase();
+            document.getElementById('det-mass').innerText = el.mass;
+            document.getElementById('det-neg').innerText = el.neg;
+            document.getElementById('det-num').innerText = el.n;
+
+            document.getElementById('meter-mass').style.width = Math.min((el.mass / 300) * 100, 100) + "%";
+            document.getElementById('meter-neg').style.width = (el.neg / 4) * 100 + "%";
+
+            document.getElementById('glow').style.background = `radial-gradient(circle, ${CATEGORIES[el.cat].c}15 0%, transparent 80%)`;
+
+            updateAtom(el.n);
+        }
+
+        function updateAtom(n) {
+            const viz = document.getElementById('viz');
+            viz.querySelectorAll('.orbit').forEach(o => o.remove());
+            const count = Math.min(Math.ceil(n/15) + 1, 5);
+            for(let i=1; i<=count; i++) {
+                const orbit = document.createElement('div');
+                orbit.className = 'orbit';
+                const size = 50 + (i * 35);
+                orbit.style.width = size + 'px';
+                orbit.style.height = size + 'px';
+                orbit.style.animationDuration = (3 + i * 1.2) + "s";
+                
+                const electrons = n > 10 ? 3 : (n % 4) + 1;
+                for(let j=0; j<electrons; j++) {
+                    const e = document.createElement('div');
+                    e.className = 'electron';
+                    e.style.transform = `rotate(${(360/electrons)*j}deg) translateY(-${size/2}px)`;
+                    orbit.appendChild(e);
+                }
+                viz.appendChild(orbit);
+            }
+        }
+
+        function toggleFilter(id, btn) {
+            const isActive = btn.classList.contains('active');
+            document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.node').forEach(n => {
+                n.style.opacity = isActive ? "1" : (n.classList.contains(id) ? "1" : "0.1");
+                n.style.filter = isActive ? "none" : (n.classList.contains(id) ? "none" : "blur(1px)");
+            });
+            if(!isActive) btn.classList.add('active');
+        }
+
+        document.getElementById('search').oninput = (e) => {
+            const v = e.target.value.toUpperCase();
+            document.querySelectorAll('.node').forEach((n, i) => {
+                const el = ELEMENTS[i];
+                const match = el.s.includes(v) || el.name.toUpperCase().includes(v) || el.n.toString() === v;
+                n.style.opacity = match ? "1" : "0.1";
+            });
+        };
+
+        window.onresize = setupCanvas;
+        window.onload = init;
+    </script>
+</body>
+</html>
